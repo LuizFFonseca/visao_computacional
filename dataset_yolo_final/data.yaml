@@ -1,0 +1,14 @@
+# data.yaml
+
+# Caminhos (podem ser absolutos ou relativos)
+path: /home/luiz-fonseca/visao_computacional/dataset_yolo_final  # Raiz do dataset
+train: images/train              # Subpasta de treino
+val: images/val                  # Subpasta de validação
+test: images/test                # Subpasta de teste
+
+# Número de classes
+nc: 1
+
+# Nomes das classes (na ordem que foram rotuladas, começando do 0)
+names:
+  0: corrosion
