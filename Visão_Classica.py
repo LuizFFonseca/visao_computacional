@@ -59,16 +59,26 @@ class CorrosionDetector:
         
         return np.sqrt(dist_sq).reshape(h, w)
 
+    # ============================================================
+    # MÉTODO ATUALIZADO COM MORFOLOGIA
+    # ============================================================
     def predict(self, img, threshold):
-        """Gera a máscara final e retorna também o mapa de distância."""
+        """Gera a máscara final e aplica morfologia para limpeza."""
         dist_map = self.get_distance_map(img)
         
-        # Gera máscara (Distância menor que threshold = Corrosão)
+        # 1. Gera máscara bruta (Distância menor que threshold = Corrosão)
         mask = (dist_map <= threshold).astype(np.uint8) * 255
         
-        # Limpeza básica (opcional)
-        kernel = np.ones((3,3), np.uint8)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+        # 2. PASSO A: Reduzir Ruído (Opening)
+        # Remove pixels isolados pequenos que não são corrosão real
+        kernel_noise = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel_noise)
+        
+        # 3. PASSO B: Unir Blobs (Closing ou Dilate)
+        # Preenche buracos dentro da corrosão e junta áreas próximas
+        # Um kernel maior aqui (ex: 7x7 ou 9x9) conecta partes mais distantes
+        kernel_merge = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel_merge)
         
         return mask, dist_map
 
@@ -116,98 +126,146 @@ class CorrosionDetector:
                 melhor_th = th
 
         print(f"--> Threshold Ideal Encontrado: {melhor_th:.1f} (F1: {melhor_f1:.4f})")
-        return melhor_th*1.2
+        return melhor_th * 1.2
+
+# ==========================================
+# Métrica de Consistência
+# ==========================================
+def calculate_inside_ratio(mask_pred, yolo_boxes):
+    total_pixels_detectados = np.count_nonzero(mask_pred)
+    
+    if total_pixels_detectados == 0:
+        return 0.0 
+
+    mask_yolo_combinada = np.zeros_like(mask_pred)
+
+    for (x1, y1, x2, y2) in yolo_boxes:
+        cv2.rectangle(mask_yolo_combinada, (x1, y1), (x2, y2), 255, -1)
+
+    intersecao = cv2.bitwise_and(mask_pred, mask_yolo_combinada)
+    pixels_dentro = np.count_nonzero(intersecao)
+
+    ratio = pixels_dentro / total_pixels_detectados
+    return ratio
 
 # ==========================================
 # EXECUÇÃO PRINCIPAL
 # ==========================================
 if __name__ == "__main__":
     
-    # 1. Definição de Pastas (Conforme seu pedido)
+    # 1. Definição de Pastas
     pasta_teste_raiz = "corrosion detect/images"
+    pasta_labels_teste = "corrosion detect/labels" 
     
     # Busca os arquivos dentro das pastas
     path_imgs_treino = sorted(glob.glob("corrosion detect/images_train/*.jpeg"))
     path_masks_treino = sorted(glob.glob("corrosion detect/mask/*.png"))
     
-    # Para teste, vamos pegar todos os formatos comuns dentro da pasta indicada
+    # Busca imagens de teste
     path_imgs_teste = []
     for ext in ['*.jpeg', '*.jpg', '*.png']:
         path_imgs_teste.extend(glob.glob(os.path.join(pasta_teste_raiz, ext)))
     path_imgs_teste.sort()
 
-    # Validações básicas
     if not path_imgs_treino:
-        print("ERRO: Nenhuma imagem de treino encontrada em 'corrosion detect/images_train/*.jpeg'")
+        print("ERRO: Nenhuma imagem de treino encontrada.")
         exit()
-    if not path_imgs_teste:
-        print(f"AVISO: Nenhuma imagem de teste encontrada em '{pasta_teste_raiz}'")
+    
+    if not os.path.exists(pasta_labels_teste):
+        print(f"AVISO: Pasta de labels '{pasta_labels_teste}' não encontrada.")
 
     # 2. Instanciar e Treinar
     detector = CorrosionDetector()
     detector.fit(path_imgs_treino, path_masks_treino)
 
-    # 3. Otimizar Threshold (Usando o Treino)
+    # 3. Otimizar Threshold
     best_th = detector.optimize_threshold_on_train_set(path_imgs_treino, path_masks_treino)
 
-    # 4. Testar em novas imagens com OVERLAY (Visualização Melhorada)
+    # 4. Visualização com Métrica
     print("-" * 30)
-    print(f"Iniciando visualização com Threshold Otimizado: {best_th}")
+    print(f"Iniciando visualização e cálculo da métrica")
     print("-" * 30)
 
     for teste_path in path_imgs_teste:
-        print(f"Processando imagem de teste: {teste_path}")
+        print(f"Processando: {teste_path}")
         img_teste = cv2.imread(teste_path)
         
-        if img_teste is None:
-            print(f"Erro ao abrir {teste_path}")
-            continue
+        if img_teste is None: continue
 
-        # Predição
+        # Predição (AGORA COM MORFOLOGIA)
         mask_resultado, dist_map = detector.predict(img_teste, threshold=best_th)
         
-        # --- CRIANDO O OVERLAY (MÁSCARA VERMELHA TRANSLÚCIDA) ---
-        # 1. Converter imagem original para RGB (Matplotlib usa RGB, OpenCV usa BGR)
+        # --- PREPARAÇÃO VISUAL ---
         img_rgb = cv2.cvtColor(img_teste, cv2.COLOR_BGR2RGB)
-        
-        # 2. Criar uma cópia para pintar de vermelho sólido onde tem corrosão
         overlay = img_rgb.copy()
-        
-        # 3. Definir a cor da máscara (Vermelho: R=255, G=0, B=0)
-        cor_mask = [255, 0, 0] 
-        
-        # 4. Pintar a região da máscara na cópia 'overlay'
-        overlay[mask_resultado > 0] = cor_mask
-        
-        # 5. Misturar a imagem original com a pintada (Alpha Blending)
-        # alpha=0.6 (60% original), beta=0.4 (40% vermelho)
+        overlay[mask_resultado > 0] = [255, 0, 0] # Segmentação em Vermelho
         img_final_overlay = cv2.addWeighted(img_rgb, 0.6, overlay, 0.4, 0)
 
-        # --- VISUALIZAÇÃO ---
-        plt.figure(figsize=(16, 5)) # Aumentei a largura da figura
+        # --- PROCESSAMENTO YOLO (Acumular Boxes) ---
+        nome_arquivo = os.path.basename(teste_path)
+        nome_txt = os.path.splitext(nome_arquivo)[0] + ".txt"
+        caminho_txt = os.path.join(pasta_labels_teste, nome_txt)
         
-        # Plot 1: Original
+        lista_boxes_validas = [] 
+        tem_label = False
+
+        if os.path.exists(caminho_txt):
+            h_img, w_img = img_teste.shape[:2]
+            tem_label = True
+            
+            with open(caminho_txt, 'r') as f:
+                linhas = f.readlines()
+            
+            for linha in linhas:
+                dados = linha.strip().split()
+                if len(dados) >= 5:
+                    x_c_norm, y_c_norm = float(dados[1]), float(dados[2])
+                    w_norm, h_norm = float(dados[3]), float(dados[4])
+
+                    w_box, h_box = int(w_norm * w_img), int(h_norm * h_img)
+                    x_center, y_center = int(x_c_norm * w_img), int(y_c_norm * h_img)
+
+                    x1 = int(x_center - w_box / 2)
+                    y1 = int(y_center - h_box / 2)
+                    x2 = int(x_center + w_box / 2)
+                    y2 = int(y_center + h_box / 2)
+                    
+                    lista_boxes_validas.append((x1, y1, x2, y2))
+                    cv2.rectangle(img_final_overlay, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        
+        # --- CÁLCULO DA MÉTRICA ---
+        metric_score = 0.0
+        msg_metrica = "Sem Label YOLO"
+        
+        if tem_label:
+            metric_score = calculate_inside_ratio(mask_resultado, lista_boxes_validas)
+            msg_metrica = f"Inside: {metric_score*100:.1f}%"
+            
+            cv2.putText(img_final_overlay, msg_metrica, (10, 30), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+            
+            print(f"   -> {msg_metrica} dos pixels previstos estão dentro da caixa.")
+
+        # --- VISUALIZAÇÃO ---
+        plt.figure(figsize=(16, 5))
+        
         plt.subplot(1, 4, 1)
-        plt.title(f"Imagem Original ({os.path.split(teste_path)[-1]})")
+        plt.title("Imagem Original")
         plt.imshow(img_rgb)
         plt.axis('off')
         
-        # Plot 2: Mapa de Calor (Explicação Matemática)
         plt.subplot(1, 4, 2)
         plt.title("Distância Mahalanobis")
         plt.imshow(dist_map, cmap='jet')
-        plt.colorbar(fraction=0.046, pad=0.04) # Ajuste visual da barra
         plt.axis('off')
         
-        # Plot 3: Máscara Binária (O que o computador 'vê')
         plt.subplot(1, 4, 3)
-        plt.title(f"Segmentação P&B (Th={best_th:.1f})")
+        plt.title(f"Segmentação + Morfologia")
         plt.imshow(mask_resultado, cmap='gray')
         plt.axis('off')
         
-        # Plot 4: OVERLAY (Para humanos visualizarem)
         plt.subplot(1, 4, 4)
-        plt.title("Visualização Final")
+        plt.title(f"Segm (Verm) + YOLO (Verde)\n{msg_metrica}")
         plt.imshow(img_final_overlay)
         plt.axis('off')
         
