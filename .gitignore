@@ -209,4 +209,13 @@ __marimo__/
 *jpeg
 *png
 *txt
+<<<<<<< HEAD
 *html
+=======
+*.pt
+
+
+teste/
+runs/
+corrosion_detect_yolo/
+>>>>>>> 676a8051cb3b028906424c8d9164cedd0e85d0db
