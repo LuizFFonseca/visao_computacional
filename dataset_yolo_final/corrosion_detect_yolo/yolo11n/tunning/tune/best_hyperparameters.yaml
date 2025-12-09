@@ -1,0 +1,30 @@
+# 30/30 iterations complete ✅ (984.08s)
+# Results saved to /home/luiz-fonseca/visao_computacional/dataset_yolo_final/corrosion_detect_yolo/yolo11n/tunning/tune
+# Best fitness=0.15255 observed at iteration 18
+# Best fitness metrics are {'metrics/precision(B)': 0.47858, 'metrics/recall(B)': 0.44414, 'metrics/mAP50(B)': 0.4146, 'metrics/mAP50-95(B)': 0.15255, 'val/box_loss': 1.34006, 'val/cls_loss': 2.47925, 'val/dfl_loss': 1.62668, 'fitness': 0.15255}
+# Best fitness model is /home/luiz-fonseca/visao_computacional/dataset_yolo_final/corrosion_detect_yolo/yolo11n/tunning/train5
+lr0: 0.01096
+lrf: 0.00997
+momentum: 0.80125
+weight_decay: 0.00056
+warmup_epochs: 3.67658
+warmup_momentum: 0.5757
+box: 4.6111
+cls: 0.6358
+dfl: 1.35506
+hsv_h: 0.03231
+hsv_s: 0.66054
+hsv_v: 0.39885
+degrees: 0.47874
+translate: 0.21726
+scale: 0.58056
+shear: 0.0
+perspective: 0.0
+flipud: 0.46605
+fliplr: 0.61003
+bgr: 0.0
+mosaic: 0.97342
+mixup: 0.0
+cutmix: 0.0
+copy_paste: 0.0
+close_mosaic: 7.0
